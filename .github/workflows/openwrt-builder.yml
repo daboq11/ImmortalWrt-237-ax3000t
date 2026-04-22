@@ -166,11 +166,11 @@ jobs:
         echo "release_tag=$(date +"%Y.%m.%d-%H%M-immortalwrt24.10-6.6-xiaomi_mi-router-ax3000t-237")" >> $GITHUB_OUTPUT
         touch release.txt
         echo "ax3000t-237固件" >> release.txt
-        echo "后台：192.168.31.1" >> release.txt
+        echo "后台：192.168.123.1" >> release.txt
         echo "账号：root" >> release.txt
         echo "密码：无" >> release.txt
         echo "默认主题：Bootstrap" >> release.txt
-        echo "集成插件（简单版）：adguardhome autoreboot mtwifi-cfg " >> release.txt
+        echo "集成插件（简单版）：luci-app-adguardhome  mtwifi-cfg 其他自己软件包安装" >> release.txt
         echo "编译源码：https://github.com/padavanonly/immortalwrt-mt798x-6.6" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
