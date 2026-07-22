@@ -122,13 +122,17 @@ jobs:
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         fi
 
-    - name: 失败通知
-      if: ${{ env.COMPILE_RESULT == 'fail' && secrets.BARK_KEY != '' && !cancelled() }}
+    - name: 编译失败通知
+      if: ${{ env.COMPILE_RESULT == 'fail' && !cancelled() }}
       env:
         BARK_KEY: ${{ secrets.BARK_KEY }}
         BARK_ENCRYPT_KEY: ${{ secrets.BARK_ENCRYPT_KEY }}
         BARK_ENCRYPT_IV: ${{ secrets.BARK_ENCRYPT_IV }}
       run: |
+        # 直接退出，不执行推送
+        if [ -z "${BARK_KEY}" ]; then
+          exit 0
+        fi
         TITLE="ImmortalWrt AX3000T 编译报错"
         CONTENT="❌ make编译失败！流水线终止\n设备：AX3000T-237\n分支：${REPO_BRANCH}\n请到Actions日志排查问题"
         LEVEL="timeSensitive"
@@ -217,13 +221,17 @@ jobs:
         retain_days: 1
         keep_minimum_runs: 3
 
-    - name: 完成通知
-      if: ${{ !cancelled() && secrets.BARK_KEY != '' }}
+    - name:完成通知
+      if: ${{ !cancelled() }}
       env:
         BARK_KEY: ${{ secrets.BARK_KEY }}
         BARK_ENCRYPT_KEY: ${{ secrets.BARK_ENCRYPT_KEY }}
         BARK_ENCRYPT_IV: ${{ secrets.BARK_ENCRYPT_IV }}
       run: |
+        # 没
+        if [ -z "${BARK_KEY}" ]; then
+          exit 0
+        fi
         TITLE="ImmortalWrt AX3000T 全部任务完成"
         CONTENT="✅ 固件编译+上传Release全部完成\n设备：AX3000T-237\n分支：${REPO_BRANCH}\nTag版本：${{ steps.tag.outputs.release_tag }}"
         LEVEL="active"
