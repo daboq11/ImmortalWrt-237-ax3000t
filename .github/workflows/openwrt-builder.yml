@@ -221,7 +221,7 @@ jobs:
         retain_days: 1
         keep_minimum_runs: 3
 
-    - name:完成通知
+    - name: 完成通知
       if: ${{ !cancelled() }}
       env:
         BARK_KEY: ${{ secrets.BARK_KEY }}
