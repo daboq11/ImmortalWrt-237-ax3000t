@@ -114,7 +114,6 @@ jobs:
           COMPILE_RESULT="fail"
         fi
         set -e
-
         echo "COMPILE_RESULT=${COMPILE_RESULT}" >> $GITHUB_ENV
         if [ "${COMPILE_RESULT}" = "success" ];then
           echo "status=success" >> $GITHUB_OUTPUT
@@ -122,7 +121,6 @@ jobs:
           [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         fi
-
 
     - name: 失败通知
       if: ${{ env.COMPILE_RESULT == 'fail' && secrets.BARK_KEY != '' && !cancelled() }}
@@ -134,27 +132,22 @@ jobs:
         TITLE="ImmortalWrt AX3000T 编译报错"
         CONTENT="❌ make编译失败！流水线终止\n设备：AX3000T-237\n分支：${REPO_BRANCH}\n请到Actions日志排查问题"
         LEVEL="timeSensitive"
-
         if [ -n "${BARK_ENCRYPT_KEY}" ] && [ -n "${BARK_ENCRYPT_IV}" ]; then
           PAYLOAD=$(jq -n --arg t "$TITLE" --arg b "$CONTENT" --arg l "$LEVEL" '{title:$t,body:$b,level:$l}')
           ENC_DATA=$(echo -n "$PAYLOAD" | openssl enc -aes-256-cbc -K $(echo -n "$BARK_ENCRYPT_KEY" | xxd -p) -iv $(echo -n "$BARK_ENCRYPT_IV" | xxd -p) -base64)
           REQ_BODY=$(jq -n --arg d "$ENC_DATA" '{ciphertext:$d}')
-          curl -s -X POST "https://api.day.app/${BARK_KEY}/encrypt" \
-            -H "Content-Type: application/json" \
-            -d "${REQ_BODY}"
+          curl -s -X POST "https://api.day.app/${BARK_KEY}/encrypt" -H "Content-Type: application/json" -d "${REQ_BODY}"
         else
           URL_ENCODE_TITLE=$(echo "$TITLE" | jq -sRr @uri)
           URL_ENCODE_CONTENT=$(echo "$CONTENT" | jq -sRr @uri)
           curl -s "https://api.day.app/${BARK_KEY}/${URL_ENCODE_TITLE}/${URL_ENCODE_CONTENT}?level=${LEVEL}"
         fi
-        # 终止后续所有步骤
         exit 1
 
     - name: Check space usage
       if: (!cancelled())
       run: df -hT
 
-    # 整理编译好的固件
     - name: Organize files
       id: organize
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
@@ -224,7 +217,6 @@ jobs:
         retain_days: 1
         keep_minimum_runs: 3
 
-
     - name: 完成通知
       if: ${{ !cancelled() && secrets.BARK_KEY != '' }}
       env:
@@ -233,19 +225,13 @@ jobs:
         BARK_ENCRYPT_IV: ${{ secrets.BARK_ENCRYPT_IV }}
       run: |
         TITLE="ImmortalWrt AX3000T 全部任务完成"
-        CONTENT="✅ 固件编译+上传Release全部完成
-设备：AX3000T-237
-分支：${REPO_BRANCH}
-Tag版本：${{ steps.tag.outputs.release_tag }}"
+        CONTENT="✅ 固件编译+上传Release全部完成\n设备：AX3000T-237\n分支：${REPO_BRANCH}\nTag版本：${{ steps.tag.outputs.release_tag }}"
         LEVEL="active"
-
         if [ -n "${BARK_ENCRYPT_KEY}" ] && [ -n "${BARK_ENCRYPT_IV}" ]; then
           PAYLOAD=$(jq -n --arg t "$TITLE" --arg b "$CONTENT" --arg l "$LEVEL" '{title:$t,body:$b,level:$l}')
           ENC_DATA=$(echo -n "$PAYLOAD" | openssl enc -aes-256-cbc -K $(echo -n "$BARK_ENCRYPT_KEY" | xxd -p) -iv $(echo -n "$BARK_ENCRYPT_IV" | xxd -p) -base64)
           REQ_BODY=$(jq -n --arg d "$ENC_DATA" '{ciphertext:$d}')
-          curl -s -X POST "https://api.day.app/${BARK_KEY}/encrypt" \
-            -H "Content-Type: application/json" \
-            -d "${REQ_BODY}"
+          curl -s -X POST "https://api.day.app/${BARK_KEY}/encrypt" -H "Content-Type: application/json" -d "${REQ_BODY}"
         else
           URL_ENCODE_TITLE=$(echo "$TITLE" | jq -sRr @uri)
           URL_ENCODE_CONTENT=$(echo "$CONTENT" | jq -sRr @uri)
