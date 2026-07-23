@@ -120,13 +120,12 @@ jobs:
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         fi
 
-    # 定义 推送
-    - name: Bark推送函数定义
+    - name: 推送
       id: bark_func
       run: |
         cat > bark_send.sh <<'EOF'
         #!/bin/bash
-        # 参数：BARK_KEY ENC_KEY ENC_IV title body isArchive
+        # 参数：BARK_KEY ENC_KEY ENC_IV title body isArchive(0/1)
         BARK_KEY="$1"
         BARK_ENCRYPT_KEY="$2"
         BARK_ENCRYPT_IV="$3"
@@ -134,42 +133,35 @@ jobs:
         CONTENT="$5"
         IS_ARCHIVE="$6"
 
+        # 密钥校验
         if [ -z "${BARK_KEY}" ]; then
           echo "未配置 BARK_KEY，跳过推送"
           exit 0
         fi
+        if [ -z "${BARK_ENCRYPT_KEY}" ] || [ -z "${BARK_ENCRYPT_IV}" ]; then
+          echo "未配置加密密钥/IV，跳过推送"
+          exit 0
+        fi
 
-        echo "【Bark推送】标题：${TITLE}"
+        echo "【通知】标题：${TITLE}"
 
-        # 构造JSON，不再主动传入level，使用Bark默认active
         JSON_PAYLOAD=$(jq -n \
           --arg t "$TITLE" \
           --arg b "$CONTENT" \
-          --arg a "$IS_ARCHIVE" \
-          '{title:$t, body:$b, isArchive:$a}')
+          --argjson a "$IS_ARCHIVE" \
+          '{
+            title: $t,
+            body: $b,
+            isArchive: $a
+          }')
 
-        if [ -n "${BARK_ENCRYPT_KEY}" ] && [ -n "${BARK_ENCRYPT_IV}" ]; then
-          # 加密推送
-          ENC_DATA=$(echo -n "$JSON_PAYLOAD" | openssl enc -aes-256-cbc -K ${BARK_ENCRYPT_KEY} -iv ${BARK_ENCRYPT_IV} -base64)
-          REQ_BODY=$(jq -n --arg d "$ENC_DATA" '{ciphertext:$d}')
-          curl -s -X POST "https://api.day.app/${BARK_KEY}/encrypt" \
-            -H "Content-Type: application/json" \
-            -d "${REQ_BODY}"
-        else
-          # 普通URL推送
-          URL_TITLE=$(echo "$TITLE" | jq -sRr @uri)
-          URL_BODY=$(echo "$CONTENT" | jq -sRr @uri)
-          QUERY=""
-          if [ -n "${IS_ARCHIVE}" ]; then
-            QUERY="isArchive=${IS_ARCHIVE}"
-          fi
-          if [ -n "${QUERY}" ]; then
-            curl -s "https://api.day.app/${BARK_KEY}/${URL_TITLE}/${URL_BODY}?${QUERY}"
-          else
-            curl -s "https://api.day.app/${BARK_KEY}/${URL_TITLE}/${URL_BODY}"
-          fi
-        fi
-        echo ""
+        ENC_DATA=$(echo -n "$JSON_PAYLOAD" | openssl enc -aes-256-cbc -K ${BARK_ENCRYPT_KEY} -iv ${BARK_ENCRYPT_IV} -base64)
+        REQ_BODY=$(jq -n --arg d "$ENC_DATA" '{ciphertext:$d}')
+
+        curl -s -X POST "https://api.day.app/${BARK_KEY}/encrypt" \
+          -H "Content-Type: application/json; charset=utf-8" \
+          -d "${REQ_BODY}"
+        echo -e "\n推送请求完成"
         EOF
         chmod +x bark_send.sh
 
@@ -275,6 +267,3 @@ jobs:
           "ImmortalWrt AX3000T 编译完成" \
           "✅ 固件编译 + Release上传全部完成\n设备型号：AX3000T-237\n源码分支：${REPO_BRANCH}\n发布标签：${{ steps.tag.outputs.release_tag }}" \
           "1"
-    #       "ImmortalWrt AX3000T 任务已取消" \
-    #       "⚠️ GitHub Actions流水线被手动终止\n源码分支：${REPO_BRANCH}" \
-    #       "1"
