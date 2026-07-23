@@ -87,7 +87,7 @@ jobs:
       if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
       env:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
     - name: Download package
       id: package
@@ -129,7 +129,6 @@ jobs:
         BARK_ENCRYPT_KEY: ${{ secrets.BARK_ENCRYPT_KEY }}
         BARK_ENCRYPT_IV: ${{ secrets.BARK_ENCRYPT_IV }}
       run: |
-        # 直接退出，不执行推送
         if [ -z "${BARK_KEY}" ]; then
           exit 0
         fi
@@ -138,7 +137,7 @@ jobs:
         LEVEL="timeSensitive"
         if [ -n "${BARK_ENCRYPT_KEY}" ] && [ -n "${BARK_ENCRYPT_IV}" ]; then
           PAYLOAD=$(jq -n --arg t "$TITLE" --arg b "$CONTENT" --arg l "$LEVEL" '{title:$t,body:$b,level:$l}')
-          ENC_DATA=$(echo -n "$PAYLOAD" | openssl enc -aes-256-cbc -K $(echo -n "$BARK_ENCRYPT_KEY" | xxd -p) -iv $(echo -n "$BARK_ENCRYPT_IV" | xxd -p) -base64)
+          ENC_DATA=$(echo -n "$PAYLOAD" | openssl enc -aes-256-cbc -K ${BARK_ENCRYPT_KEY} -iv ${BARK_ENCRYPT_IV} -base64)
           REQ_BODY=$(jq -n --arg d "$ENC_DATA" '{ciphertext:$d}')
           curl -s -X POST "https://api.day.app/${BARK_KEY}/encrypt" -H "Content-Type: application/json" -d "${REQ_BODY}"
         else
@@ -228,7 +227,6 @@ jobs:
         BARK_ENCRYPT_KEY: ${{ secrets.BARK_ENCRYPT_KEY }}
         BARK_ENCRYPT_IV: ${{ secrets.BARK_ENCRYPT_IV }}
       run: |
-        # 没
         if [ -z "${BARK_KEY}" ]; then
           exit 0
         fi
@@ -237,7 +235,7 @@ jobs:
         LEVEL="active"
         if [ -n "${BARK_ENCRYPT_KEY}" ] && [ -n "${BARK_ENCRYPT_IV}" ]; then
           PAYLOAD=$(jq -n --arg t "$TITLE" --arg b "$CONTENT" --arg l "$LEVEL" '{title:$t,body:$b,level:$l}')
-          ENC_DATA=$(echo -n "$PAYLOAD" | openssl enc -aes-256-cbc -K $(echo -n "$BARK_ENCRYPT_KEY" | xxd -p) -iv $(echo -n "$BARK_ENCRYPT_IV" | xxd -p) -base64)
+          ENC_DATA=$(echo -n "$PAYLOAD" | openssl enc -aes-256-cbc -K ${BARK_ENCRYPT_KEY} -iv ${BARK_ENCRYPT_IV} -base64)
           REQ_BODY=$(jq -n --arg d "$ENC_DATA" '{ciphertext:$d}')
           curl -s -X POST "https://api.day.app/${BARK_KEY}/encrypt" -H "Content-Type: application/json" -d "${REQ_BODY}"
         else
