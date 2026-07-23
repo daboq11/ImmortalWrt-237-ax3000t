@@ -1,4 +1,3 @@
-#
 # Copyright (c) 2019-2020 P3TERX <https://p3terx.com>
 #
 # This is free software, licensed under the MIT License.
@@ -6,7 +5,6 @@
 #
 # https://github.com/P3TERX/Actions-OpenWrt
 # Description: Build OpenWrt using GitHub Actions
-#
 
 name: Build OpenWrt
 
@@ -122,6 +120,59 @@ jobs:
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         fi
 
+    # 定义 Bark 通用推送脚本
+    - name: Bark推送函数定义
+      id: bark_func
+      run: |
+        cat > bark_send.sh <<'EOF'
+        #!/bin/bash
+        # 参数：BARK_KEY ENC_KEY ENC_IV title body isArchive
+        BARK_KEY="$1"
+        BARK_ENCRYPT_KEY="$2"
+        BARK_ENCRYPT_IV="$3"
+        TITLE="$4"
+        CONTENT="$5"
+        IS_ARCHIVE="$6"
+
+        if [ -z "${BARK_KEY}" ]; then
+          echo "未配置 BARK_KEY，跳过推送"
+          exit 0
+        fi
+
+        echo "【Bark推送】标题：${TITLE}"
+
+        # 构造JSON，不再主动传入level，使用Bark默认active
+        JSON_PAYLOAD=$(jq -n \
+          --arg t "$TITLE" \
+          --arg b "$CONTENT" \
+          --arg a "$IS_ARCHIVE" \
+          '{title:$t, body:$b, isArchive:$a}')
+
+        if [ -n "${BARK_ENCRYPT_KEY}" ] && [ -n "${BARK_ENCRYPT_IV}" ]; then
+          # 加密推送
+          ENC_DATA=$(echo -n "$JSON_PAYLOAD" | openssl enc -aes-256-cbc -K ${BARK_ENCRYPT_KEY} -iv ${BARK_ENCRYPT_IV} -base64)
+          REQ_BODY=$(jq -n --arg d "$ENC_DATA" '{ciphertext:$d}')
+          curl -s -X POST "https://api.day.app/${BARK_KEY}/encrypt" \
+            -H "Content-Type: application/json" \
+            -d "${REQ_BODY}"
+        else
+          # 普通URL推送
+          URL_TITLE=$(echo "$TITLE" | jq -sRr @uri)
+          URL_BODY=$(echo "$CONTENT" | jq -sRr @uri)
+          QUERY=""
+          if [ -n "${IS_ARCHIVE}" ]; then
+            QUERY="isArchive=${IS_ARCHIVE}"
+          fi
+          if [ -n "${QUERY}" ]; then
+            curl -s "https://api.day.app/${BARK_KEY}/${URL_TITLE}/${URL_BODY}?${QUERY}"
+          else
+            curl -s "https://api.day.app/${BARK_KEY}/${URL_TITLE}/${URL_BODY}"
+          fi
+        fi
+        echo ""
+        EOF
+        chmod +x bark_send.sh
+
     - name: 编译失败通知
       if: ${{ env.COMPILE_RESULT == 'fail' && !cancelled() }}
       env:
@@ -129,23 +180,13 @@ jobs:
         BARK_ENCRYPT_KEY: ${{ secrets.BARK_ENCRYPT_KEY }}
         BARK_ENCRYPT_IV: ${{ secrets.BARK_ENCRYPT_IV }}
       run: |
-        if [ -z "${BARK_KEY}" ]; then
-          exit 0
-        fi
-        TITLE="ImmortalWrt AX3000T 编译报错"
-        CONTENT="❌ make编译失败！流水线终止\n设备：AX3000T-237\n分支：${REPO_BRANCH}\n请到Actions日志排查问题"
-        LEVEL="timeSensitive"
-        if [ -n "${BARK_ENCRYPT_KEY}" ] && [ -n "${BARK_ENCRYPT_IV}" ]; then
-          PAYLOAD=$(jq -n --arg t "$TITLE" --arg b "$CONTENT" --arg l "$LEVEL" '{title:$t,body:$b,level:$l}')
-          ENC_DATA=$(echo -n "$PAYLOAD" | openssl enc -aes-256-cbc -K ${BARK_ENCRYPT_KEY} -iv ${BARK_ENCRYPT_IV} -base64)
-          REQ_BODY=$(jq -n --arg d "$ENC_DATA" '{ciphertext:$d}')
-          curl -s -X POST "https://api.day.app/${BARK_KEY}/encrypt" -H "Content-Type: application/json" -d "${REQ_BODY}"
-        else
-          URL_ENCODE_TITLE=$(echo "$TITLE" | jq -sRr @uri)
-          URL_ENCODE_CONTENT=$(echo "$CONTENT" | jq -sRr @uri)
-          curl -s "https://api.day.app/${BARK_KEY}/${URL_ENCODE_TITLE}/${URL_ENCODE_CONTENT}?level=${LEVEL}"
-        fi
-        exit 1
+        ./bark_send.sh \
+          "${BARK_KEY}" \
+          "${BARK_ENCRYPT_KEY}" \
+          "${BARK_ENCRYPT_IV}" \
+          "ImmortalWrt AX3000T 编译失败" \
+          "❌ 固件编译失败，流水线终止\n设备型号：AX3000T-237\n源码分支：${REPO_BRANCH}\n请前往 Actions 日志排查错误" \
+          "1"
 
     - name: Check space usage
       if: (!cancelled())
@@ -196,11 +237,11 @@ jobs:
         echo "release_tag=$(date +"%Y.%m.%d-%H%M-immortalwrt24.10-6.6-xiaomi_mi-router-ax3000t-237")" >> $GITHUB_OUTPUT
         touch release.txt
         echo "ax3000t-237固件" >> release.txt
-        echo "后台：192.168.1.1" >> release.txt
-        echo "账号：root" >> release.txt
-        echo "密码：无" >> release.txt
+        echo "后台地址：192.168.1.1" >> release.txt
+        echo "登录账号：root" >> release.txt
+        echo "登录密码：无" >> release.txt
         echo "默认主题：Bootstrap" >> release.txt
-        echo "集成插件（简单版）：argon luci-app-adguardhome  mtwifi-cfg 其他自己软件包安装" >> release.txt
+        echo "集成插件：argon、luci-app-adguardhome、mtwifi-cfg，其余插件可在软件包自行安装" >> release.txt
         echo "编译源码：https://github.com/padavanonly/immortalwrt-mt798x-6.6" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
@@ -220,26 +261,20 @@ jobs:
         retain_days: 1
         keep_minimum_runs: 3
 
-    - name: 完成通知
-      if: ${{ !cancelled() }}
+    - name: 编译完成通知
+      if: ${{ !cancelled() && env.COMPILE_RESULT == 'success' }}
       env:
         BARK_KEY: ${{ secrets.BARK_KEY }}
         BARK_ENCRYPT_KEY: ${{ secrets.BARK_ENCRYPT_KEY }}
         BARK_ENCRYPT_IV: ${{ secrets.BARK_ENCRYPT_IV }}
       run: |
-        if [ -z "${BARK_KEY}" ]; then
-          exit 0
-        fi
-        TITLE="ImmortalWrt AX3000T 全部任务完成"
-        CONTENT="✅ 固件编译+上传Release全部完成\n设备：AX3000T-237\n分支：${REPO_BRANCH}\nTag版本：${{ steps.tag.outputs.release_tag }}"
-        LEVEL="active"
-        if [ -n "${BARK_ENCRYPT_KEY}" ] && [ -n "${BARK_ENCRYPT_IV}" ]; then
-          PAYLOAD=$(jq -n --arg t "$TITLE" --arg b "$CONTENT" --arg l "$LEVEL" '{title:$t,body:$b,level:$l}')
-          ENC_DATA=$(echo -n "$PAYLOAD" | openssl enc -aes-256-cbc -K ${BARK_ENCRYPT_KEY} -iv ${BARK_ENCRYPT_IV} -base64)
-          REQ_BODY=$(jq -n --arg d "$ENC_DATA" '{ciphertext:$d}')
-          curl -s -X POST "https://api.day.app/${BARK_KEY}/encrypt" -H "Content-Type: application/json" -d "${REQ_BODY}"
-        else
-          URL_ENCODE_TITLE=$(echo "$TITLE" | jq -sRr @uri)
-          URL_ENCODE_CONTENT=$(echo "$CONTENT" | jq -sRr @uri)
-          curl -s "https://api.day.app/${BARK_KEY}/${URL_ENCODE_TITLE}/${URL_ENCODE_CONTENT}?level=${LEVEL}"
-        fi
+        ./bark_send.sh \
+          "${BARK_KEY}" \
+          "${BARK_ENCRYPT_KEY}" \
+          "${BARK_ENCRYPT_IV}" \
+          "ImmortalWrt AX3000T 编译完成" \
+          "✅ 固件编译 + Release上传全部完成\n设备型号：AX3000T-237\n源码分支：${REPO_BRANCH}\n发布标签：${{ steps.tag.outputs.release_tag }}" \
+          "1"
+    #       "ImmortalWrt AX3000T 任务已取消" \
+    #       "⚠️ GitHub Actions流水线被手动终止\n源码分支：${REPO_BRANCH}" \
+    #       "1"
