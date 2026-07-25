@@ -37,7 +37,7 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@main
+      uses: actions/checkout@v4
 
     - name: Initialization environment
       env:
@@ -125,47 +125,55 @@ jobs:
       run: |
         cat > bark_send.sh <<'EOF'
         #!/bin/bash
-        # 参数：BARK_KEY ENC_KEY ENC_IV title body isArchive(0/1)
-        BARK_KEY="$1"
-        BARK_ENCRYPT_KEY="$2"
-        BARK_ENCRYPT_IV="$3"
+        # 参
+        DEVICE_KEY="$1"
+        AES_RAW_KEY="$2"
+        AES_RAW_IV="$3"
         TITLE="$4"
-        CONTENT="$5"
-        IS_ARCHIVE="$6"
+        BODY="$5"
+        GROUP="$6"
 
-        # 密钥校验
-        if [ -z "${BARK_KEY}" ]; then
-          echo "未配置 BARK_KEY，跳过推送"
+        # 校验
+        if [[ ${#AES_RAW_KEY} -ne 16 || ${#AES_RAW_IV} -ne 16 ]];then
+          echo "错误：AES加密密钥与IV必须是16位字符串"
+          exit 1
+        fi
+        if [[ -z "${DEVICE_KEY}" ]];then
+          echo "未配置BARK设备密钥，跳过推送"
           exit 0
         fi
-        if [ -z "${BARK_ENCRYPT_KEY}" ] || [ -z "${BARK_ENCRYPT_IV}" ]; then
-          echo "未配置加密密钥/IV，跳过推送"
-          exit 0
-        fi
 
-        echo "【通知】标题：${TITLE}"
-
-        JSON_PAYLOAD=$(jq -n \
+        # 组
+        JSON_CONTENT=$(jq -n \
+          --arg dk "$DEVICE_KEY" \
           --arg t "$TITLE" \
-          --arg b "$CONTENT" \
-          --argjson a "$IS_ARCHIVE" \
+          --arg b "$BODY" \
+          --arg g "$GROUP" \
           '{
+            device_key: $dk,
             title: $t,
             body: $b,
-            isArchive: $a
+            group: $g,
+            isArchive: 1
           }')
 
-        ENC_DATA=$(echo -n "$JSON_PAYLOAD" | openssl enc -aes-256-cbc -K ${BARK_ENCRYPT_KEY} -iv ${BARK_ENCRYPT_IV} -base64)
-        REQ_BODY=$(jq -n --arg d "$ENC_DATA" '{ciphertext:$d}')
+        # 原始
+        HEX_KEY=$(printf "%s" "$AES_RAW_KEY" | xxd -ps -c 200)
+        HEX_IV=$(printf "%s" "$AES_RAW_IV" | xxd -ps -c 200)
 
-        curl -s -X POST "https://api.day.app/${BARK_KEY}/encrypt" \
-          -H "Content-Type: application/json; charset=utf-8" \
-          -d "${REQ_BODY}"
-        echo -e "\n推送请求完成"
+        # 
+        CIPHERTEXT=$(echo -n "$JSON_CONTENT" | openssl enc -aes-128-cbc -K "${HEX_KEY}" -iv "${HEX_IV}" | base64 -w 0)
+
+        # 
+        curl -s -X POST "https://api.day.app/push" \
+          --data-urlencode "ciphertext=${CIPHERTEXT}" \
+          --data-urlencode "iv=${AES_RAW_IV}"
+
+        echo -e "\nBark加密推送执行完成"
         EOF
         chmod +x bark_send.sh
 
-    - name: 编译失败通知
+    - name: 失败通知
       if: ${{ env.COMPILE_RESULT == 'fail' && !cancelled() }}
       env:
         BARK_KEY: ${{ secrets.BARK_KEY }}
@@ -178,7 +186,7 @@ jobs:
           "${BARK_ENCRYPT_IV}" \
           "ImmortalWrt AX3000T 编译失败" \
           "❌ 固件编译失败，流水线终止\n设备型号：AX3000T-237\n源码分支：${REPO_BRANCH}\n请前往 Actions 日志排查错误" \
-          "1"
+          "OpenWrt编译通知"
 
     - name: Check space usage
       if: (!cancelled())
@@ -198,7 +206,7 @@ jobs:
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware directory
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
@@ -248,12 +256,12 @@ jobs:
         files: ${{ env.FIRMWARE }}/*
 
     - name: Delete workflow runs
-      uses: GitRML/delete-workflow-runs@main
+      uses: GitRML/delete-workflow-runs@v2
       with:
         retain_days: 1
         keep_minimum_runs: 3
 
-    - name: 编译完成通知
+    - name: 完成通知
       if: ${{ !cancelled() && env.COMPILE_RESULT == 'success' }}
       env:
         BARK_KEY: ${{ secrets.BARK_KEY }}
@@ -266,4 +274,4 @@ jobs:
           "${BARK_ENCRYPT_IV}" \
           "ImmortalWrt AX3000T 编译完成" \
           "✅ 固件编译 + Release上传全部完成\n设备型号：AX3000T-237\n源码分支：${REPO_BRANCH}\n发布标签：${{ steps.tag.outputs.release_tag }}" \
-          "1"
+          "OpenWrt编译通知"
