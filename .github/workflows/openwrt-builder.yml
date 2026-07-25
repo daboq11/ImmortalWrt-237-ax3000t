@@ -120,7 +120,7 @@ jobs:
           echo "RELEASE_TAG=$(date +"%Y.%m.%d-%H%M-immortalwrt24.10-6.6-xiaomi_mi-router-ax3000t-237")" >> $GITHUB_ENV
         fi
 
-    - name: 生成Bark推送脚本
+    - name:  推送
       id: bark_func
       run: |
         cat > bark_send.sh <<'EOF'
@@ -132,12 +132,12 @@ jobs:
         BODY="$5"
         GROUP="$6"
 
-        # 清除首尾空白换行
+        # 清除
         AES_RAW_KEY=$(echo -n "$AES_RAW_KEY" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
         AES_RAW_IV=$(echo -n "$AES_RAW_IV" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
         if [[ -z "${DEVICE_KEY}" ]];then
-          echo "未配置BARK设备密钥，跳过推送"
+          echo "未配置密钥，跳过推送"
           exit 0
         fi
 
@@ -157,13 +157,13 @@ jobs:
         HEX_KEY=$(printf "%s" "$AES_RAW_KEY" | xxd -ps -c 200)
         HEX_IV=$(printf "%s" "$AES_RAW_IV" | xxd -ps -c 200)
 
-        # AES-256-CBC + PKCS7填充（openssl默认就是PKCS7，无需额外参数）
+        # 
         CIPHERTEXT=$(echo -n "$JSON_CONTENT" | openssl enc -aes-256-cbc -e -K "${HEX_KEY}" -iv "${HEX_IV}" | base64 -w 0)
 
         curl -s -X POST "https://api.day.app/push" \
           --data-urlencode "ciphertext=${CIPHERTEXT}"
 
-        echo -e "\nBark加密推送执行完成"
+        echo -e "\nBark推送执行完成"
         EOF
         chmod +x bark_send.sh
 
@@ -249,7 +249,7 @@ jobs:
         body_path: release.txt
         files: ${{ env.FIRMWARE }}/*
 
-    - name: 编译完成通知
+    - name: 完成通知
       if: ${{ !cancelled() && env.COMPILE_RESULT == 'success' }}
       env:
         BARK_KEY: ${{ secrets.BARK_KEY }}
