@@ -91,7 +91,6 @@ jobs:
       id: package
       run: |
         cd openwrt
-        make defconfig
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
@@ -120,7 +119,7 @@ jobs:
           echo "RELEASE_TAG=$(date +"%Y.%m.%d-%H%M-immortalwrt24.10-6.6-xiaomi_mi-router-ax3000t-237")" >> $GITHUB_ENV
         fi
 
-    - name:  推送
+    - name:  生成推送脚本
       id: bark_func
       run: |
         cat > bark_send.sh <<'EOF'
@@ -132,7 +131,6 @@ jobs:
         BODY="$5"
         GROUP="$6"
 
-        # 清除
         AES_RAW_KEY=$(echo -n "$AES_RAW_KEY" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
         AES_RAW_IV=$(echo -n "$AES_RAW_IV" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
@@ -154,14 +152,12 @@ jobs:
             isArchive: 1
           }')
 
-        HEX_KEY=$(printf "%s" "$AES_RAW_KEY" | xxd -ps -c 200)
-        HEX_IV=$(printf "%s" "$AES_RAW_IV" | xxd -ps -c 200)
+        HEX_KEY=$(printf "%s" "$AES_RAW_KEY" | hexdump -ve '1/1 "%.2x"')
+        HEX_IV=$(printf "%s" "$AES_RAW_IV" | hexdump -ve '1/1 "%.2x"')
 
-        # 
         CIPHERTEXT=$(echo -n "$JSON_CONTENT" | openssl enc -aes-256-cbc -e -K "${HEX_KEY}" -iv "${HEX_IV}" | base64 -w 0)
 
-        curl -s -X POST "https://api.day.app/push" \
-          --data-urlencode "ciphertext=${CIPHERTEXT}"
+        curl -s -X POST "https://api.day.app/push" -d "ciphertext=${CIPHERTEXT}"
 
         echo -e "\nBark推送执行完成"
         EOF
