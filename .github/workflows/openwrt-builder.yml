@@ -1,5 +1,3 @@
-
-
 name: Build OpenWrt
 
 on:
@@ -18,244 +16,146 @@ env:
   CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
-  UPLOAD_COWTRANSFER: false
-  UPLOAD_WETRANSFER: false
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout repo config
+        uses: actions/checkout@v4
 
-    - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo rm -rf /usr/local/share/docker
-        sudo -E apt-get -qq update
-        sudo -E apt-get -qq install $(curl -fsSL git.io/depends-ubuntu-2004) openssl jq
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
-        sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
+      - name: Initialize build environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/docker
+          sudo apt-get -qq update
+          sudo apt-get -qq install $(curl -fsSL git.io/depends-ubuntu-2004) openssl jq
+          sudo apt-get -qq autoremove --purge
+          sudo apt-get -qq clean
+          sudo timedatectl set-timezone "${TZ}"
+          sudo mkdir -p /workdir
+          sudo chown $USER:$GROUPS /workdir
 
-    - name: Clone source code
-      working-directory: /workdir
-      run: |
-        df -hT $PWD
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+      - name: Clone ImmortalWrt source code
+        working-directory: /workdir
+        run: |
+          git clone "${REPO_URL}" -b "${REPO_BRANCH}" openwrt
+          ln -sf /workdir/openwrt "${GITHUB_WORKSPACE}/openwrt"
 
-    - name: Load custom feeds
-      run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-        chmod +x $DIY_P1_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
+      - name: Apply diy-part1 & custom feeds
+        run: |
+          [ -e "${FEEDS_CONF}" ] && mv "${FEEDS_CONF}" openwrt/feeds.conf.default
+          chmod +x "${DIY_P1_SH}"
+          cd openwrt
+          "${GITHUB_WORKSPACE}/${DIY_P1_SH}"
 
-    - name: Update feeds
-      run: cd openwrt && ./scripts/feeds update -a
+      - name: Update and install feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-    - name: Install feeds
-      run: cd openwrt && ./scripts/feeds install -a
+      - name: Apply config & diy-part2
+        run: |
+          [ -e files ] && mv files openwrt/files
+          [ -e "${CONFIG_FILE}" ] && mv "${CONFIG_FILE}" openwrt/.config
+          chmod +x "${DIY_P2_SH}"
+          cd openwrt
+          "${GITHUB_WORKSPACE}/${DIY_P2_SH}"
 
-    - name: Load custom configuration
-      run: |
-        [ -e files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
-        chmod +x $DIY_P2_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P2_SH
+      - name: SSH remote connect
+        uses: P3TERX/ssh2actions@v1.0.0
+        if: (github.event.inputs.ssh == 'true') || contains(github.event.action, 'ssh')
 
-    - name: SSH connection to Actions
-      uses: P3TERX/ssh2actions@v1.0.0
-      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
-      env:
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      - name: Download all source packages
+        run: |
+          cd openwrt
+          make download -j8
+          find dl -size -1024c -exec rm -f {} \;
 
-    - name: Download package
-      id: package
-      run: |
-        cd openwrt
-        make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
+      - name: Compile firmware
+        id: compile_build
+        run: |
+          cd openwrt
+          echo "Compile threads: $(nproc)"
+          set +e
+          COMPILE_RESULT="fail"
+          if make -j$(nproc); then
+            COMPILE_RESULT="success"
+          elif make -j1; then
+            COMPILE_RESULT="success"
+          elif make -j1 V=s; then
+            COMPILE_RESULT="success"
+          fi
+          set -e
+          echo "COMPILE_RESULT=${COMPILE_RESULT}" >> $GITHUB_ENV
 
-    - name: Compile the firmware
-      id: compile
-      run: |
-        cd openwrt
-        echo -e "$(nproc) thread compile"
-        set +e
-        COMPILE_RESULT="fail"
-        if make -j$(nproc); then
-          COMPILE_RESULT="success"
-        elif make -j1; then
-          COMPILE_RESULT="success"
-        elif make -j1 V=s; then
-          COMPILE_RESULT="success"
-        fi
-        set -e
-        echo "COMPILE_RESULT=${COMPILE_RESULT}" >> $GITHUB_ENV
-        if [ "${COMPILE_RESULT}" = "success" ];then
-          echo "status=success" >> $GITHUB_OUTPUT
-          # 修复
-          DEV_NAME=$(grep '^Target-Profile:' .targetinfo | head -n1 | awk '{print $2}')
-          [ -z "${DEV_NAME}" ] && DEV_NAME="xiaomi_mi-router-ax3000t-237"
+          if [[ "${COMPILE_RESULT}" == "success" ]];then
+            DEV_NAME=$(grep '^Target-Profile:' .targetinfo | head -n1 | awk '{print $2}')
+            [ -z "${DEV_NAME}" ] && DEV_NAME="xiaomi_mi-router-ax3000t-237"
+            echo "DEVICE_NAME=_${DEV_NAME}" >> $GITHUB_ENV
+            echo "REAL_DEV_NAME=${DEV_NAME}" >> $GITHUB_ENV
+            echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+            echo "RELEASE_TAG=$(date +"%Y.%m.%d-%H%M-immortalwrt24.10-6.6-${DEV_NAME}")" >> $GITHUB_ENV
+            echo "build_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "build_status=fail" >> $GITHUB_OUTPUT
+          fi
 
-          echo "DEVICE_NAME=_${DEV_NAME}" >> $GITHUB_ENV
-          echo "REAL_DEV_NAME=${DEV_NAME}" >> $GITHUB_ENV
-          echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-          echo "RELEASE_TAG=$(date +"%Y.%m.%d-%H%M-immortalwrt24.10-6.6-${DEV_NAME}")" >> $GITHUB_ENV
-        fi
+      - name: Terminate workflow when compile failed
+        if: env.COMPILE_RESULT != 'success' && !cancelled()
+        run: exit 1
 
-    - name:  生成推送脚本
-      id: bark_func
-      run: |
-        cat > bark_send.sh <<'EOF'
-        #!/bin/bash
-        DEVICE_KEY="$1"
-        AES_RAW_KEY="$2"
-        AES_RAW_IV="$3"
-        TITLE="$4"
-        BODY="$5"
-        GROUP="$6"
+      - name: Check disk usage
+        run: df -hT
 
-        if [[ -z "${DEVICE_KEY}" || -z "${AES_RAW_KEY}" || -z "${AES_RAW_IV}" ]];then
-          echo "密钥未配置，跳过"
-          exit 0
-        fi
+      - name: Organize firmware files
+        id: organize_firm
+        if: env.UPLOAD_FIRMWARE == 'true'
+        run: |
+          cd openwrt/bin/targets/*/*
+          rm -rf packages *.buildinfo *.manifest *.json *bl2.bin
+          echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
+          echo "organize_ok=true" >> $GITHUB_OUTPUT
 
-        AES_RAW_KEY=$(echo -n "$AES_RAW_KEY" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-        AES_RAW_IV=$(echo -n "$AES_RAW_IV" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        if: steps.organize_firm.outputs.organize_ok == 'true'
+        with:
+          name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: ${{ env.FIRMWARE_PATH }}
 
-        JSON_CONTENT=$(jq -n \
-          --arg dk "$DEVICE_KEY" \
-          --arg t "$TITLE" \
-          --arg b "$BODY" \
-          --arg g "$GROUP" \
-          '{
-            device_key: $dk,
-            title: $t,
-            body: $b,
-            group: $g,
-            isArchive: 1
-          }')
+      - name: Prepare release notes
+        id: make_release_note
+        if: env.UPLOAD_RELEASE == 'true'
+        run: |
+          echo "release_tag=${{ env.RELEASE_TAG }}" >> $GITHUB_OUTPUT
+          cat > release_info.txt << EOF
+小米AX3000T-237 ImmortalWrt固件
+后台地址：192.168.1.1
+账号：root
+密码：无
+默认主题：Bootstrap
+预装插件：argon、adguardhome、mtwifi-cfg
+其余插件软件包手动安装
+编译源码：https://github.com/padavanonly/immortalwrt-mt798x-6.6
+编译分支：${REPO_BRANCH}
+编译设备：${REAL_DEV_NAME}
+编译时间：$(date +"%Y-%m-%d %H:%M:%S")
+EOF
+          echo "release_ok=true" >> $GITHUB_OUTPUT
 
-        HEX_KEY=$(printf "%s" "$AES_RAW_KEY" | hexdump -ve '1/1 "%.2x"')
-        HEX_IV=$(printf "%s" "$AES_RAW_IV" | hexdump -ve '1/1 "%.2x"')
-
-        CIPHERTEXT=$(echo -n "$JSON_CONTENT" | openssl enc -aes-256-cbc -e -K "${HEX_KEY}" -iv "${HEX_IV}" | base64 -w 0)
-
-        curl -s -X POST "https://api.day.app/push" -d "ciphertext=${CIPHERTEXT}"
-
-        echo -e "\n推送完成"
-        EOF
-        chmod +x bark_send.sh
-
-    - name: 编译失败通知
-      if: ${{ env.COMPILE_RESULT == 'fail' && !cancelled() }}
-      env:
-        BARK_KEY: ${{ secrets.BARK_KEY }}
-        BARK_ENCRYPT_KEY: ${{ secrets.BARK_ENCRYPT_KEY }}
-        BARK_ENCRYPT_IV: ${{ secrets.BARK_ENCRYPT_IV }}
-      run: |
-        ./bark_send.sh \
-          "${BARK_KEY}" \
-          "${BARK_ENCRYPT_KEY}" \
-          "${BARK_ENCRYPT_IV}" \
-          "ImmortalWrt AX3000T 编译失败" \
-          "❌ 固件编译失败，流水线终止\n源码分支：${REPO_BRANCH}\n请前往 Actions 日志排查错误" \
-          "OpenWrt编译通知"
-
-    - name: Check space usage
-      if: (!cancelled())
-      run: df -hT
-
-    - name: Organize files
-      id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
-      run: |
-        cd openwrt/bin/targets/*/*
-        rm -rf packages
-        rm -rf *.buildinfo
-        rm -rf *.manifest
-        rm -rf *.json
-        rm -rf *bl2.bin
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware directory
-      uses: actions/upload-artifact@v4
-      if: steps.organize.outputs.status == 'success' && !cancelled()
-      with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
-
-    - name: Upload firmware to cowtransfer
-      id: cowtransfer
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
-      run: |
-        curl -fsSL git.io/file-transfer | sh
-        ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
-        echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
-        echo "url=$(cat cowtransfer.log | grep https | cut -f3 -d" ")" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware to WeTransfer
-      id: wetransfer
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
-      run: |
-        curl -fsSL git.io/file-transfer | sh
-        ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
-        echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
-        echo "url=$(cat wetransfer.log | grep https | cut -f3 -d" ")" >> $GITHUB_OUTPUT
-
-    - name: Generate release file
-      id: tag
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      run: |
-        echo "release_tag=${{ env.RELEASE_TAG }}" >> $GITHUB_OUTPUT
-        touch release.txt
-        echo "ax3000t-237固件" >> release.txt
-        echo "后台地址：192.168.1.1" >> release.txt
-        echo "登录账号：root" >> release.txt
-        echo "登录密码：无" >> release.txt
-        echo "默认主题：Bootstrap" >> release.txt
-        echo "集成插件：argon、luci-app-adguardhome、mtwifi-cfg，其余插件可在软件包自行安装" >> release.txt
-        echo "编译源码：https://github.com/padavanonly/immortalwrt-mt798x-6.6" >> release.txt
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware to release
-      uses: softprops/action-gh-release@v1
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: |
-          ${{ env.FIRMWARE }}/*
-
-    - name: 完成通知
-      if: ${{ !cancelled() && env.COMPILE_RESULT == 'success' }}
-      env:
-        BARK_KEY: ${{ secrets.BARK_KEY }}
-        BARK_ENCRYPT_KEY: ${{ secrets.BARK_ENCRYPT_KEY }}
-        BARK_ENCRYPT_IV: ${{ secrets.BARK_ENCRYPT_IV }}
-      run: |
-        ./bark_send.sh \
-          "${BARK_KEY}" \
-          "${BARK_ENCRYPT_KEY}" \
-          "${BARK_ENCRYPT_IV}" \
-          "ImmortalWrt AX3000T 编译完成" \
-          "✅ 固件编译 + Release上传全部完成\n设备型号：${REAL_DEV_NAME}\n源码分支：${REPO_BRANCH}\n发布标签：${RELEASE_TAG}" \
-          "OpenWrt编译通知"
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v1
+        if: steps.make_release_note.outputs.release_ok == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.make_release_note.outputs.release_tag }}
+          body_path: release_info.txt
+          files: |
+            ${{ env.FIRMWARE_PATH }}/*
