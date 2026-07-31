@@ -1,10 +1,4 @@
-# Copyright (c) 2019-2020 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the MIT License.
-# See /LICENSE for more information.
-#
-# https://github.com/P3TERX/Actions-OpenWrt
-# Description: Build OpenWrt using GitHub Actions
+
 
 name: Build OpenWrt
 
@@ -114,12 +108,12 @@ jobs:
         echo "COMPILE_RESULT=${COMPILE_RESULT}" >> $GITHUB_ENV
         if [ "${COMPILE_RESULT}" = "success" ];then
           echo "status=success" >> $GITHUB_OUTPUT
-          # =========修复asb3000识别错误，改用.targetinfo读取真实设备Profile=========
+          # 修复
           DEV_NAME=$(grep '^Target-Profile:' .targetinfo | head -n1 | awk '{print $2}')
-          # 兜底AX3000T‑237
           [ -z "${DEV_NAME}" ] && DEV_NAME="xiaomi_mi-router-ax3000t-237"
 
           echo "DEVICE_NAME=_${DEV_NAME}" >> $GITHUB_ENV
+          echo "REAL_DEV_NAME=${DEV_NAME}" >> $GITHUB_ENV
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
           echo "RELEASE_TAG=$(date +"%Y.%m.%d-%H%M-immortalwrt24.10-6.6-${DEV_NAME}")" >> $GITHUB_ENV
         fi
@@ -164,7 +158,7 @@ jobs:
 
         curl -s -X POST "https://api.day.app/push" -d "ciphertext=${CIPHERTEXT}"
 
-        echo -e "\n推送执行完成"
+        echo -e "\n推送完成"
         EOF
         chmod +x bark_send.sh
 
@@ -180,7 +174,7 @@ jobs:
           "${BARK_ENCRYPT_KEY}" \
           "${BARK_ENCRYPT_IV}" \
           "ImmortalWrt AX3000T 编译失败" \
-          "❌ 固件编译失败，流水线终止\n设备型号：${DEV_NAME}\n源码分支：${REPO_BRANCH}\n请前往 Actions 日志排查错误" \
+          "❌ 固件编译失败，流水线终止\n源码分支：${REPO_BRANCH}\n请前往 Actions 日志排查错误" \
           "OpenWrt编译通知"
 
     - name: Check space usage
@@ -263,5 +257,5 @@ jobs:
           "${BARK_ENCRYPT_KEY}" \
           "${BARK_ENCRYPT_IV}" \
           "ImmortalWrt AX3000T 编译完成" \
-          "✅ 固件编译 + Release上传全部完成\n设备型号：${{ env.DEVICE_NAME#_ }}\n源码分支：${REPO_BRANCH}\n发布标签：${{ env.RELEASE_TAG }}" \
+          "✅ 固件编译 + Release上传全部完成\n设备型号：${REAL_DEV_NAME}\n源码分支：${REPO_BRANCH}\n发布标签：${RELEASE_TAG}" \
           "OpenWrt编译通知"
