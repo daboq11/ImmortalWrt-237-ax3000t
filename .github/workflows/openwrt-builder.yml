@@ -134,19 +134,17 @@ jobs:
         if: env.UPLOAD_RELEASE == 'true'
         run: |
           echo "release_tag=${{ env.RELEASE_TAG }}" >> $GITHUB_OUTPUT
-          cat > release_info.txt <<-EOF
-小米AX3000T-237 ImmortalWrt固件
-后台地址：192.168.1.1
-账号：root
-密码：无
-默认主题：Bootstrap
-预装插件：argon、adguardhome、mtwifi-cfg
-其余插件可软件包手动安装
-编译源码：https://github.com/padavanonly/immortalwrt-mt798x-6.6
-编译分支：${REPO_BRANCH}
-编译设备：${REAL_DEV_NAME}
-编译时间：$(date +"%Y-%m-%d %H:%M:%S")
-EOF
+          echo "小米AX3000T-237 ImmortalWrt固件" > release_info.txt
+          echo "后台地址：192.168.1.1" >> release_info.txt
+          echo "账号：root" >> release_info.txt
+          echo "密码：无" >> release_info.txt
+          echo "默认主题：Bootstrap" >> release_info.txt
+          echo "预装插件：argon、adguardhome、mtwifi-cfg" >> release_info.txt
+          echo "其余插件可软件包手动安装" >> release_info.txt
+          echo "编译源码：https://github.com/padavanonly/immortalwrt-mt798x-6.6" >> release_info.txt
+          echo "编译分支：${REPO_BRANCH}" >> release_info.txt
+          echo "编译设备：${REAL_DEV_NAME}" >> release_info.txt
+          echo "编译时间：$(date +"%Y-%m-%d %H:%M:%S")" >> release_info.txt
           echo "release_ok=true" >> $GITHUB_OUTPUT
 
       - name: Publish to GitHub Release
@@ -158,4 +156,4 @@ EOF
           tag_name: ${{ steps.make_release_note.outputs.release_tag }}
           body_path: release_info.txt
           files:
-            ${{ env.FIRMWARE_PATH }}/*
+            - ${{ env.FIRMWARE_PATH }}/*
