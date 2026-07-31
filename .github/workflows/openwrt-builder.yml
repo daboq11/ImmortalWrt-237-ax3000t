@@ -69,7 +69,7 @@ jobs:
 
       - name: SSH remote connect
         uses: P3TERX/ssh2actions@v1.0.0
-        if: (github.event.inputs.ssh == 'true') || contains(github.event.action, 'ssh')
+        if: github.event.inputs.ssh == 'true' || contains(github.event.action, 'ssh')
 
       - name: Download all source packages
         run: |
@@ -134,14 +134,14 @@ jobs:
         if: env.UPLOAD_RELEASE == 'true'
         run: |
           echo "release_tag=${{ env.RELEASE_TAG }}" >> $GITHUB_OUTPUT
-          cat > release_info.txt << EOF
+          cat > release_info.txt <<-EOF
 小米AX3000T-237 ImmortalWrt固件
 后台地址：192.168.1.1
 账号：root
 密码：无
 默认主题：Bootstrap
 预装插件：argon、adguardhome、mtwifi-cfg
-其余插件软件包手动安装
+其余插件可软件包手动安装
 编译源码：https://github.com/padavanonly/immortalwrt-mt798x-6.6
 编译分支：${REPO_BRANCH}
 编译设备：${REAL_DEV_NAME}
@@ -157,5 +157,5 @@ EOF
         with:
           tag_name: ${{ steps.make_release_note.outputs.release_tag }}
           body_path: release_info.txt
-          files: |
+          files:
             ${{ env.FIRMWARE_PATH }}/*
