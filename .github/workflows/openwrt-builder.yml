@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       ssh:
-        description: 'SSH connection to Actions'
+        description: SSH connection to Actions
         required: false
         default: 'false'
 
@@ -155,5 +155,4 @@ jobs:
         with:
           tag_name: ${{ steps.make_release_note.outputs.release_tag }}
           body_path: release_info.txt
-          files:
-            - ${{ env.FIRMWARE_PATH }}/*
+          files: ${{ env.FIRMWARE_PATH }}/*
