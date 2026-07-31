@@ -44,6 +44,7 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo rm -rf /usr/local/share/docker
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL git.io/depends-ubuntu-2004) openssl jq
         sudo -E apt-get -qq autoremove --purge
@@ -113,10 +114,14 @@ jobs:
         echo "COMPILE_RESULT=${COMPILE_RESULT}" >> $GITHUB_ENV
         if [ "${COMPILE_RESULT}" = "success" ];then
           echo "status=success" >> $GITHUB_OUTPUT
-          grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-          [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+          # =========修复asb3000识别错误，改用.targetinfo读取真实设备Profile=========
+          DEV_NAME=$(grep '^Target-Profile:' .targetinfo | head -n1 | awk '{print $2}')
+          # 兜底AX3000T‑237
+          [ -z "${DEV_NAME}" ] && DEV_NAME="xiaomi_mi-router-ax3000t-237"
+
+          echo "DEVICE_NAME=_${DEV_NAME}" >> $GITHUB_ENV
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-          echo "RELEASE_TAG=$(date +"%Y.%m.%d-%H%M-immortalwrt24.10-6.6-xiaomi_mi-router-ax3000t-237")" >> $GITHUB_ENV
+          echo "RELEASE_TAG=$(date +"%Y.%m.%d-%H%M-immortalwrt24.10-6.6-${DEV_NAME}")" >> $GITHUB_ENV
         fi
 
     - name:  生成推送脚本
@@ -131,13 +136,13 @@ jobs:
         BODY="$5"
         GROUP="$6"
 
-        AES_RAW_KEY=$(echo -n "$AES_RAW_KEY" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-        AES_RAW_IV=$(echo -n "$AES_RAW_IV" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-
-        if [[ -z "${DEVICE_KEY}" ]];then
-          echo "未配置密钥，跳过推送"
+        if [[ -z "${DEVICE_KEY}" || -z "${AES_RAW_KEY}" || -z "${AES_RAW_IV}" ]];then
+          echo "密钥未配置，跳过"
           exit 0
         fi
+
+        AES_RAW_KEY=$(echo -n "$AES_RAW_KEY" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        AES_RAW_IV=$(echo -n "$AES_RAW_IV" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
         JSON_CONTENT=$(jq -n \
           --arg dk "$DEVICE_KEY" \
@@ -159,7 +164,7 @@ jobs:
 
         curl -s -X POST "https://api.day.app/push" -d "ciphertext=${CIPHERTEXT}"
 
-        echo -e "\nBark推送执行完成"
+        echo -e "\n推送执行完成"
         EOF
         chmod +x bark_send.sh
 
@@ -175,7 +180,7 @@ jobs:
           "${BARK_ENCRYPT_KEY}" \
           "${BARK_ENCRYPT_IV}" \
           "ImmortalWrt AX3000T 编译失败" \
-          "❌ 固件编译失败，流水线终止\n设备型号：AX3000T-237\n源码分支：${REPO_BRANCH}\n请前往 Actions 日志排查错误" \
+          "❌ 固件编译失败，流水线终止\n设备型号：${DEV_NAME}\n源码分支：${REPO_BRANCH}\n请前往 Actions 日志排查错误" \
           "OpenWrt编译通知"
 
     - name: Check space usage
@@ -243,7 +248,8 @@ jobs:
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
-        files: ${{ env.FIRMWARE }}/*
+        files: |
+          ${{ env.FIRMWARE }}/*
 
     - name: 完成通知
       if: ${{ !cancelled() && env.COMPILE_RESULT == 'success' }}
@@ -257,11 +263,5 @@ jobs:
           "${BARK_ENCRYPT_KEY}" \
           "${BARK_ENCRYPT_IV}" \
           "ImmortalWrt AX3000T 编译完成" \
-          "✅ 固件编译 + Release上传全部完成\n设备型号：AX3000T-237\n源码分支：${REPO_BRANCH}\n发布标签：${{ env.RELEASE_TAG }}" \
+          "✅ 固件编译 + Release上传全部完成\n设备型号：${{ env.DEVICE_NAME#_ }}\n源码分支：${REPO_BRANCH}\n发布标签：${{ env.RELEASE_TAG }}" \
           "OpenWrt编译通知"
-
-    - name: Delete workflow runs
-      uses: GitRML/delete-workflow-runs@main
-      with:
-        retain_days: 1
-        keep_minimum_runs: 3
