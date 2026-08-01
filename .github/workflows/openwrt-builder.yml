@@ -19,8 +19,6 @@ env:
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
-  SELF_BEFORE_SH: diy-part1.sh
-  SELF_AFTER_SH: diy-part2.sh
 
 jobs:
   build:
