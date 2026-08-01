@@ -19,137 +19,117 @@ env:
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
+  SELF_BEFORE_SH: diy-part1.sh
+  SELF_AFTER_SH: diy-part2.sh
 
 jobs:
   build:
     name: build-firmware
     runs-on: ubuntu-22.04
-
     permissions:
       contents: write
       actions: write
     
     steps:
-    - name: 清理磁盘空间 (Ubuntu)
-      uses: jlumbroso/free-disk-space@main
-      with:
-        # this might remove tools that are actually needed,
-        # if set to "true" but frees about 6 GB
-        tool-cache: false
-        
-        # all of these default to true, but feel free to set to
-        # "false" if necessary for your workflow
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: true
-        swap-storage: false
+      - name: 清理磁盘空间 (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: false
 
-    - name: checkout
-      uses: actions/checkout@main
+      - name: Checkout code
+        uses: actions/checkout@main
 
-    - name: 安装环境
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        #  sudo apt-get update
-        #  sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
-        #    bzip2 ccache clang clangd cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
-        #    g++-multilib git gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev \
-        #    libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libreadline-dev \
-        #    libssl-dev libtool lld lldb lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf \
-        #    python3 python3-pip python3-ply python3-docutils qemu-utils re2c rsync scons squashfs-tools subversion swig \
-        #    texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
-        
-        sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.eu.org/init_build_environment.sh)'
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
-        sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /srcdir
-        sudo chown $USER:$GROUPS /srcdir
-
-    - name: 克隆资源代码
-      working-directory: /srcdir
-      run: |
-        echo "Free space:"
-        df -hT $PWD
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /srcdir/openwrt $GITHUB_WORKSPACE/openwrt
-
-    - name: 更新源
-      run: cd openwrt && ./scripts/feeds update -a
-
-    - name: 安装源
-      run: | 
-        cd openwrt && ./scripts/feeds install -a
-        cd ..
-        chmod +x $SELF_BEFORE_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$SELF_BEFORE_SH
-
-    - name: 加载配置文件
-      run: |
-        [ -e files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
-        chmod +x $SELF_AFTER_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$SELF_AFTER_SH
-
-    - name: 下载软件包
-      id: package
-      run: |
-        cd openwrt
-        make defconfig
-        make download -j8 V=11
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
-
-    - name: 编译固件
-      id: compile
-      run: |
-        cd openwrt
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
-        
-        # Need Modify https://docs.github.com/zh/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#multiline-strings
-        # grep '^CONFIG_TARGET_DEVICE.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-        # [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
-        echo "DEVICE_NAME=_xiaomi-ax3000t" >>$GITHUB_ENV
-        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-
-    - name: 检查磁盘空间
-      if: (!cancelled())
-      run: df -hT
-
-    - name: 上传bin库
-      uses: actions/upload-artifact@main
-      if: steps.compile.outputs.status == 'success' && !cancelled()
-      with:
-        name: ImmortalWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin
-
-    - name: 组织文件
-      id: organize
-      if: (!cancelled())
-      run: |
-        cd openwrt/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: 上传固件库
-      uses: actions/upload-artifact@main
-      if: steps.organize.outputs.status == 'success' && !cancelled()
-      with:
-        name: ImmortalWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
-
-      - name: Prepare release notes
-        id: make_release_note
-        if: env.UPLOAD_RELEASE == 'true'
+      - name: 安装编译环境
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          echo "release_tag=${{ env.RELEASE_TAG }}" >> $GITHUB_OUTPUT
+          sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.eu.org/init_build_environment.sh)'
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+          sudo timedatectl set-timezone "$TZ"
+          sudo mkdir -p /srcdir
+          sudo chown $USER:$GROUPS /srcdir
+
+      - name: 克隆源码仓库
+        working-directory: /srcdir
+        run: |
+          echo "Free space:"
+          df -hT $PWD
+          git clone $REPO_URL -b $REPO_BRANCH openwrt
+          ln -sf /srcdir/openwrt $GITHUB_WORKSPACE/openwrt
+
+      - name: 更新feeds源
+        run: cd openwrt && ./scripts/feeds update -a
+
+      - name: 安装feeds & 执行diy-part1.sh
+        run: | 
+          cd openwrt && ./scripts/feeds install -a
+          chmod +x $GITHUB_WORKSPACE/$SELF_BEFORE_SH
+          $GITHUB_WORKSPACE/$SELF_BEFORE_SH
+
+      - name: 加载配置 & 执行diy-part2.sh
+        run: |
+          [ -e files ] && mv files openwrt/files
+          [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+          chmod +x $GITHUB_WORKSPACE/$SELF_AFTER_SH
+          $GITHUB_WORKSPACE/$SELF_AFTER_SH
+
+      - name: 下载软件包
+        id: package
+        run: |
+          cd openwrt
+          make defconfig
+          make download -j8
+          find dl -size -1024c -exec ls -l {} \;
+          find dl -size -1024c -exec rm -f {} \;
+
+      - name: 编译固件
+        id: compile
+        run: |
+          cd openwrt
+          echo -e "$(nproc) thread compile"
+          make -j$(nproc) || make -j1 || make -j1 V=s
+          echo "status=success" >> $GITHUB_OUTPUT
+          echo "DEVICE_NAME=_xiaomi-ax3000t" >> $GITHUB_ENV
+          echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+      - name: 检查磁盘空间
+        if: (!cancelled())
+        run: df -hT
+
+      - name: 上传bin完整包 Artifact
+        uses: actions/upload-artifact@main
+        if: steps.compile.outputs.status == 'success' && !cancelled()
+        with:
+          name: ImmortalWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: openwrt/bin
+
+      - name: 整理固件路径
+        id: organize
+        if: (!cancelled())
+        run: |
+          cd openwrt/bin/targets/*/*
+          rm -rf packages
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: 单独上传固件镜像 Artifact
+        uses: actions/upload-artifact@main
+        if: steps.organize.outputs.status == 'success' && !cancelled()
+        with:
+          name: ImmortalWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: ${{ env.FIRMWARE }}
+
+      - name: 生成Release说明文档
+        id: make_release_note
+        if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success'
+        run: |
+          echo "RELEASE_TAG=Build${{ env.FILE_DATE }}" >> $GITHUB_ENV
           echo "小米AX3000T-237 ImmortalWrt固件" > release_info.txt
           echo "后台地址：192.168.1.1" >> release_info.txt
           echo "账号：root" >> release_info.txt
@@ -158,37 +138,38 @@ jobs:
           echo "预装插件：argon、adguardhome、mtwifi-cfg" >> release_info.txt
           echo "其余插件可软件包手动安装" >> release_info.txt
           echo "编译源码：https://github.com/padavanonly/immortalwrt-mt798x-6.6" >> release_info.txt
-          echo "编译分支：${REPO_BRANCH}" >> release_info.txt
           echo "release_ok=true" >> $GITHUB_OUTPUT
-  - name: Upload firmware to release
-      id: release
-      uses: softprops/action-gh-release@v2
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: ${{ env.FIRMWARE }}/*
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: 清理
-      id: clean-compile
-      run: |
-        cd openwrt
-        make clean
+      - name: 发布 Release 上传固件
+        id: release
+        uses: softprops/action-gh-release@main
+        if: env.UPLOAD_RELEASE == 'true' && steps.make_release_note.outputs.release_ok == 'true'
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          body_path: release_info.txt
+          files: ${{ env.FIRMWARE }}/*
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: 缓存
-      id: cache-compile
-      uses: actions/cache/save@v4
-      if: steps.compile.outputs.status == 'success' && !cancelled()
-      with:
-        path: openwrt
-        key: ${{ runner.os }}-openwrt-${{ hashFiles('openwrt/feeds.conf.default') }}
+      - name: 清理编译产物
+        id: clean-compile
+        run: |
+          cd openwrt
+          make clean
 
-    - name: 删除工作流
-      uses: Mattraks/delete-workflow-runs@v2
-      with:
-        token: ${{ github.token }}
-        repository: ${{ github.repository }}
-        retain_days: 7
-        keep_minimum_runs: 3
+      - name: 缓存dl目录
+        id: cache-compile
+        uses: actions/cache/save@main
+        if: steps.compile.outputs.status == 'success' && !cancelled()
+        with:
+          path: openwrt/dl
+          key: ${{ runner.os }}-openwrt-dl-${{ hashFiles('openwrt/feeds.conf.default') }}
+
+      - name: 删除旧工作流运行记录
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 7
+          keep_minimum_runs: 3
