@@ -42,7 +42,7 @@ jobs:
           swap-storage: false
 
       - name: Checkout code
-        uses: actions/checkout@main
+        uses: actions/checkout@v4
 
       - name: 安装编译环境
         env:
@@ -103,7 +103,7 @@ jobs:
         run: df -hT
 
       - name: 上传bin完整包 Artifact
-        uses: actions/upload-artifact@main
+        uses: actions/upload-artifact@v4
         if: steps.compile.outputs.status == 'success' && !cancelled()
         with:
           name: ImmortalWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
@@ -119,7 +119,7 @@ jobs:
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: 单独上传固件镜像 Artifact
-        uses: actions/upload-artifact@main
+        uses: actions/upload-artifact@v4
         if: steps.organize.outputs.status == 'success' && !cancelled()
         with:
           name: ImmortalWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
@@ -142,7 +142,7 @@ jobs:
 
       - name: 发布 Release 上传固件
         id: release
-        uses: softprops/action-gh-release@main
+        uses: softprops/action-gh-release@v2
         if: env.UPLOAD_RELEASE == 'true' && steps.make_release_note.outputs.release_ok == 'true'
         with:
           tag_name: ${{ env.RELEASE_TAG }}
@@ -160,7 +160,7 @@ jobs:
 
       - name: 缓存dl目录
         id: cache-compile
-        uses: actions/cache/save@main
+        uses: actions/cache/save@v4
         if: steps.compile.outputs.status == 'success' && !cancelled()
         with:
           path: openwrt/dl
