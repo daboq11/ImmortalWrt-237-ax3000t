@@ -123,12 +123,10 @@ jobs:
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
         echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        cat > release.txt << EOF
-Access: 192.168.1.1
-User: root
-Password: 无
-Plugins: xxx
-EOF
+        echo "Access: 192.168.1.1
+        echo "User: root
+        echo "Password: none
+        echo "Plugins: xxx" > release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
