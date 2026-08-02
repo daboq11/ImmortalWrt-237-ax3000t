@@ -123,7 +123,7 @@ jobs:
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
         echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        echo -e "管理地址：192.168.1.1\n登录账号：root\n登录密码：无\n内置插件：xxx" > release.txt
+        echo -e "后台：192.168.1.1\n账号：root\n密码：无\n内置插件：xxx" > release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
